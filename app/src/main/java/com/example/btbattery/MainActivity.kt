@@ -28,7 +28,7 @@ import android.view.WindowInsetsController
 import android.widget.*
 import java.util.UUID
 
-data class Dev(val name: String, val level: Int, val icon: String)
+data class Dev(val addr: String, val name: String, val level: Int, val icon: String)
 data class Pods(val l: Int, val r: Int, val c: Int, val cl: Boolean, val cr: Boolean, val cc: Boolean)
 
 @SuppressLint("MissingPermission")
@@ -38,6 +38,9 @@ class MainActivity : Activity() {
     private val battChr = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
     private val actionBatt = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
     private val extraBatt = "android.bluetooth.device.extra.BATTERY_LEVEL"
+
+    private val prefs by lazy { getSharedPreferences("icons", Context.MODE_PRIVATE) }
+    private val iconChoices = listOf("🎧", "⌚", "📱", "💻", "⌨️", "🖱", "🔊", "🎮", "📷", "🚗", "💡", "🔵")
 
     private val ui = Handler(Looper.getMainLooper())
     private var adapter: BluetoothAdapter? = null
@@ -108,8 +111,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun iconBubble(emoji: String) = TextView(this).apply {
+    private fun iconBubble(emoji: String, onClick: (() -> Unit)? = null) = TextView(this).apply {
         text = emoji
+        if (onClick != null) setOnClickListener { onClick() }
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
         gravity = Gravity.CENTER
         background = oval(cTrack)
@@ -119,7 +123,7 @@ class MainActivity : Activity() {
     private fun deviceCard(d: Dev): View {
         val c = cardView()
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        row.addView(iconBubble(d.icon))
+        row.addView(iconBubble(prefs.getString(d.addr, null) ?: d.icon) { pickIcon(d.addr) })
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         names.addView(tv(d.name, 17f, cText, true).apply {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END
@@ -132,6 +136,21 @@ class MainActivity : Activity() {
         c.addView(row)
         c.addView(Bar(this, maxOf(d.level, 0), levelColor(d.level)), lp(match, dp(6)).apply { topMargin = dp(16) })
         return c
+    }
+
+    private fun pickIcon(addr: String) {
+        val grid = GridLayout(this).apply { columnCount = 4; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        var dialog: android.app.AlertDialog? = null
+        iconChoices.forEach { e ->
+            grid.addView(TextView(this).apply {
+                text = e
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(14), dp(14), dp(14))
+                setOnClickListener { prefs.edit().putString(addr, e).apply(); dialog?.dismiss(); render() }
+            })
+        }
+        dialog = android.app.AlertDialog.Builder(this).setTitle("Выберите иконку").setView(grid).show()
     }
 
     private fun podCol(label: String, lvl: Int, charging: Boolean): View {
@@ -191,6 +210,10 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(24), dp(20), dp(32))
         }
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_fg)
+            scaleX = 1.7f; scaleY = 1.7f
+        }, lp(dp(44), dp(44)).apply { marginEnd = dp(10) })
         val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         titles.addView(tv("Батарея", 34f, cText, true))
         titles.addView(tv("Bluetooth-устройства", 14f, cSub).apply { setPadding(0, dp(6), 0, 0) })
@@ -230,7 +253,7 @@ class MainActivity : Activity() {
                 val l = i.getIntExtra(extraBatt, -1)
                 if (d != null && l >= 0) {
                     seen.add(d.address)
-                    levels[d.address] = Dev(d.name ?: d.address, l, iconFor(d))
+                    levels[d.address] = Dev(d.address, d.name ?: d.address, l, iconFor(d))
                     render()
                 }
             }
@@ -298,7 +321,7 @@ class MainActivity : Activity() {
             val h = hiddenLevel(d)
             val old = levels[d.address]?.level ?: -1
             val l = if (h >= 0) h else old
-            levels[d.address] = Dev(d.name ?: d.address, l, iconFor(d))
+            levels[d.address] = Dev(d.address, d.name ?: d.address, l, iconFor(d))
             if (l < 0) readGatt(d)
             render()
         }
@@ -311,7 +334,7 @@ class MainActivity : Activity() {
         fun done() { gattBusy.remove(d.address); try { gatt?.close() } catch (_: Exception) {} }
         fun handle(v: ByteArray?) {
             if (v != null && v.isNotEmpty()) runOnUiThread {
-                levels[d.address] = Dev(d.name ?: d.address, v[0].toInt() and 0xFF, iconFor(d))
+                levels[d.address] = Dev(d.address, d.name ?: d.address, v[0].toInt() and 0xFF, iconFor(d))
                 render()
             }
             done()
